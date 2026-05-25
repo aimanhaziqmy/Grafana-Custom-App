@@ -1,49 +1,55 @@
 import React, { useState, useEffect } from 'react';
 import { AppRootProps } from '@grafana/data';
 import { getBackendSrv } from '@grafana/runtime';
-import { TabsBar, Tab, TabContent, Modal, Button, Select, Input, Field, Alert } from '@grafana/ui';
+import { TabsBar, Tab, TabContent, Modal, Button, Select, Input, Field, Alert, useTheme2 } from '@grafana/ui';
 
 export function App(props: AppRootProps) {
-  // 1. DYNAMICALLY GET THE PLUGIN ID (Fixes the "Plugin not found" error)
   const pluginId = props.meta.id;
+  const theme = useTheme2(); // Using Grafana's native theme engine for seamless colors
   
   const [activeTab, setActiveTab] = useState('sites');
   
-  // Data State
   const [sites, setSites] = useState<any[]>([]);
   const [inverters, setInverters] = useState<any[]>([]);
   const [exclusionsData, setExclusionsData] = useState<any>({});
+  const [fetchError, setFetchError] = useState<string | null>(null);
   
-  // Modal & Form State
+  const [siteSearchQuery, setSiteSearchQuery] = useState('');
+  const [siteFilterBrand, setSiteFilterBrand] = useState('ALL');
+  
+  const [inverterSearchQuery, setInverterSearchQuery] = useState('');
+  const [inverterFilterSite, setInverterFilterSite] = useState('ALL');
+  
   const [isAddSiteOpen, setIsAddSiteOpen] = useState(false);
   const [newSiteBrand, setNewSiteBrand] = useState('');
   const [newSiteIdentifier, setNewSiteIdentifier] = useState('');
   const [webhookStatus, setWebhookStatus] = useState<{type: string, msg: string} | null>(null);
 
-  // Exclusions Tab State
   const [selectedSite, setSelectedSite] = useState('');
   const [selectedInv, setSelectedInv] = useState('');
   const [currentExclusions, setCurrentExclusions] = useState<number[]>([]);
   const [remarks, setRemarks] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
 
-  // 2. Fetch Initial Data using the dynamic pluginId
   const fetchData = async () => {
+    setFetchError(null);
     try {
       const s = await getBackendSrv().get(`/api/plugins/${pluginId}/resources/sites`);
       const i = await getBackendSrv().get(`/api/plugins/${pluginId}/resources/inverters`);
       const e = await getBackendSrv().get(`/api/plugins/${pluginId}/resources/exclusions`);
+      
       setSites(s || []);
       setInverters(i || []);
       setExclusionsData(e || {});
-    } catch (err) {
-      console.error("Failed to fetch data", err);
+    } catch (err: any) {
+      console.error("Backend Error:", err);
+      const errorMessage = err.data?.error || err.message || "Unknown network error";
+      setFetchError(`Database Connection Failed: ${errorMessage}`);
     }
   };
 
   useEffect(() => { fetchData(); }, []);
 
-  // 3. Add Site Webhook Logic
   const handleAddSite = async () => {
     setWebhookStatus(null);
     try {
@@ -56,12 +62,14 @@ export function App(props: AppRootProps) {
         url = `https://ersn8n.freeddns.org/webhook/sungrow-sync-pdr-site?site_name=${newSiteIdentifier}`;
       }
 
-      // Call n8n webhook directly from frontend
       const res = await fetch(url, { method: 'GET' });
       
       if (res.ok) {
         setWebhookStatus({ type: 'success', msg: `Successfully triggered ${newSiteBrand} webhook!` });
-        setTimeout(() => setIsAddSiteOpen(false), 2000);
+        setTimeout(() => {
+          setIsAddSiteOpen(false);
+          fetchData();
+        }, 2000);
       } else {
         setWebhookStatus({ type: 'error', msg: `Webhook failed with status: ${res.status}` });
       }
@@ -70,7 +78,26 @@ export function App(props: AppRootProps) {
     }
   };
 
-  // 4. Save Exclusions Logic using dynamic pluginId
+  // ---> NEW: Toggle Status Logic <---
+  const handleToggleMonitor = async (siteCode: string, currentStatus: string) => {
+    const isActivating = currentStatus !== 'Active';
+    const actionWord = isActivating ? 'ACTIVATE' : 'DEACTIVATE';
+    
+    // Safety Prompt
+    if (window.confirm(`Are you sure you want to ${actionWord} the site: ${siteCode}?`)) {
+      try {
+        await getBackendSrv().post(`/api/plugins/${pluginId}/resources/sites/status`, {
+          station_code: siteCode,
+          is_monitored: isActivating
+        });
+        fetchData(); // Instantly refresh table to show new status
+      } catch (err: any) {
+        const errorMessage = err.data?.error || "Failed to update database.";
+        setFetchError(`Status Update Failed: ${errorMessage}`);
+      }
+    }
+  };
+
   const handleSaveExclusions = async () => {
     try {
       await getBackendSrv().post(`/api/plugins/${pluginId}/resources/exclusions`, {
@@ -80,10 +107,11 @@ export function App(props: AppRootProps) {
         remarks: remarks
       });
       setSaveStatus('Success! Database updated.');
-      fetchData(); // Refresh state
+      fetchData(); 
       setTimeout(() => setSaveStatus(''), 3000);
-    } catch (err) {
-      setSaveStatus('Failed to save to database.');
+    } catch (err: any) {
+      const errorMessage = err.data?.error || "Failed to save to database.";
+      setSaveStatus(`Error: ${errorMessage}`);
     }
   };
 
@@ -93,11 +121,33 @@ export function App(props: AppRootProps) {
     );
   };
 
+  const uniqueBrands = Array.from(new Set(sites.map(s => s.brand).filter(Boolean)));
+  const brandOptions = [
+    { label: 'All Brands', value: 'ALL' },
+    ...uniqueBrands.map(brand => ({ label: String(brand), value: String(brand) }))
+  ];
+
+  const filteredSites = sites.filter(s => {
+    const matchesSearch = !siteSearchQuery || 
+      (s.code?.toLowerCase() || '').includes(siteSearchQuery.toLowerCase()) || 
+      (s.name?.toLowerCase() || '').includes(siteSearchQuery.toLowerCase());
+    const matchesBrand = siteFilterBrand === 'ALL' || s.brand === siteFilterBrand;
+    return matchesSearch && matchesBrand;
+  });
+
+  const filteredInverters = inverters.filter(inv => {
+    const matchesSearch = !inverterSearchQuery ||
+      (inv.sn?.toLowerCase() || '').includes(inverterSearchQuery.toLowerCase());
+    const matchesSite = inverterFilterSite === 'ALL' || inv.site === inverterFilterSite;
+    return matchesSearch && matchesSite;
+  });
+
+  const labelStyle: React.CSSProperties = { fontSize: '12px', fontWeight: 500, color: theme.colors.text.secondary, marginBottom: '4px' };
+
   return (
-    <div style={{ padding: '20px' }}>
+    <div style={{ padding: '20px', background: 'transparent' }}>
       <h2 style={{ marginBottom: '20px' }}>O&M Integration Hub</h2>
 
-      {/* TABS */}
       <TabsBar>
         <Tab label="Sites & Stations" active={activeTab === 'sites'} onChangeTab={() => setActiveTab('sites')} />
         <Tab label="Inverter Management" active={activeTab === 'inverters'} onChangeTab={() => setActiveTab('inverters')} />
@@ -105,14 +155,33 @@ export function App(props: AppRootProps) {
       </TabsBar>
 
       <TabContent>
-        <div style={{ marginTop: '20px' }}>
+        <div style={{ marginTop: '25px', background: 'transparent' }}>
+          
+          {fetchError && (
+            <div style={{ marginBottom: '20px' }}>
+              <Alert severity="error" title="Backend Error">{fetchError}</Alert>
+            </div>
+          )}
           
           {/* ================= SITES TAB ================= */}
           {activeTab === 'sites' && (
             <div>
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-                <Button variant="secondary" icon="sync" onClick={fetchData}>Sync Database</Button>
-                <Button variant="primary" icon="plus" onClick={() => setIsAddSiteOpen(true)}>Add New Site</Button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '25px', flexWrap: 'wrap', gap: '20px' }}>
+                <div style={{ display: 'flex', gap: '15px' }}>
+                  <Button variant="secondary" icon="sync" onClick={fetchData}>Refresh Dashboard</Button>
+                  <Button variant="primary" icon="plus" onClick={() => setIsAddSiteOpen(true)}>Add New Site</Button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-end' }}>
+                  <div style={{ width: '200px' }}>
+                    <div style={labelStyle}>Filter by Brand</div>
+                    <Select options={brandOptions} value={siteFilterBrand} onChange={(v) => setSiteFilterBrand(v.value!)} />
+                  </div>
+                  <div style={{ width: '250px' }}>
+                    <div style={labelStyle}>Search Sites</div>
+                    <Input placeholder="Search Code or Name..." value={siteSearchQuery} onChange={(e) => setSiteSearchQuery(e.currentTarget.value)} />
+                  </div>
+                </div>
               </div>
 
               <table className="filter-table form-inline">
@@ -120,21 +189,46 @@ export function App(props: AppRootProps) {
                   <tr>
                     <th>Station Code</th>
                     <th>Plant Name</th>
-                    <th>Status</th>
+                    <th>Brand</th>
+                    <th>Capacity</th>
+                    <th>Is Monitored</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sites.map((s, i) => (
+                  {filteredSites.length === 0 && !fetchError && (
+                    <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>No sites found matching your criteria.</td></tr>
+                  )}
+                  {filteredSites.map((s, i) => (
                     <tr key={i}>
-                      <td style={{ color: '#3274d9', fontWeight: 'bold' }}>{s.code}</td>
+                      <td style={{ color: theme.colors.primary.text, fontWeight: 'bold' }}>{s.code}</td>
                       <td>{s.name}</td>
-                      <td>{s.status}</td>
+                      <td>{s.brand}</td>
+                      <td>{s.capacity}</td>
+                      <td>
+                        <span style={{ 
+                          padding: '2px 8px', borderRadius: '3px', fontSize: '12px', fontWeight: 'bold',
+                          background: s.status === 'Active' ? theme.colors.success.transparent : theme.colors.error.transparent,
+                          color: s.status === 'Active' ? theme.colors.success.text : theme.colors.error.text
+                        }}>
+                          {s.status}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {/* ---> NEW: Actions Button <--- */}
+                        <Button 
+                          variant={s.status === 'Active' ? 'destructive' : 'success'} 
+                          size="sm" 
+                          onClick={() => handleToggleMonitor(s.code, s.status)}
+                        >
+                          {s.status === 'Active' ? 'Deactivate' : 'Activate'}
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
 
-              {/* NATIVE GRAFANA MODAL */}
               <Modal title="Add New Site" isOpen={isAddSiteOpen} onDismiss={() => setIsAddSiteOpen(false)}>
                 <Field label="Inverter Brand System">
                   <Select 
@@ -164,17 +258,11 @@ export function App(props: AppRootProps) {
                   </Field>
                 )}
 
-                {webhookStatus && (
-                   <Alert severity={webhookStatus.type as any} title="">{webhookStatus.msg}</Alert>
-                )}
+                {webhookStatus && <Alert severity={webhookStatus.type as any} title="">{webhookStatus.msg}</Alert>}
 
                 <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
                   <Button variant="secondary" onClick={() => setIsAddSiteOpen(false)}>Cancel</Button>
-                  <Button 
-                    variant="primary" 
-                    onClick={handleAddSite}
-                    disabled={!newSiteBrand || (!newSiteIdentifier && newSiteBrand !== 'Huawei')}
-                  >
+                  <Button variant="primary" onClick={handleAddSite} disabled={!newSiteBrand || (!newSiteIdentifier && newSiteBrand !== 'Huawei')}>
                     {newSiteBrand === 'Huawei' ? 'Trigger Sync' : 'Add Site'}
                   </Button>
                 </div>
@@ -184,29 +272,64 @@ export function App(props: AppRootProps) {
 
           {/* ================= INVERTERS TAB ================= */}
           {activeTab === 'inverters' && (
-             <table className="filter-table form-inline">
-               <thead>
-                 <tr>
-                   <th>Inverter SN</th>
-                   <th>Station</th>
-                   <th>Associated Strings</th>
-                 </tr>
-               </thead>
-               <tbody>
-                 {inverters.map((inv, i) => (
-                   <tr key={i}>
-                     <td style={{ fontFamily: 'monospace' }}>{inv.sn}</td>
-                     <td>{inv.site}</td>
-                     <td>{inv.strings}</td>
-                   </tr>
-                 ))}
-               </tbody>
-             </table>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '25px', flexWrap: 'wrap', gap: '20px' }}>
+                <div style={{ display: 'flex', gap: '15px' }}>
+                  <Button variant="secondary" icon="sync" onClick={fetchData}>Refresh Dashboard</Button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-end' }}>
+                  <div style={{ width: '250px' }}>
+                    <div style={labelStyle}>Filter by Site</div>
+                    <Select
+                      options={[
+                        { label: 'All Sites', value: 'ALL' },
+                        ...sites.map(s => ({ label: `${s.name} (${s.code})`, value: s.code }))
+                      ]}
+                      value={inverterFilterSite}
+                      onChange={(v) => setInverterFilterSite(v.value!)}
+                    />
+                  </div>
+                  <div style={{ width: '250px' }}>
+                    <div style={labelStyle}>Search Inverters</div>
+                    <Input placeholder="Search by Serial Number..." value={inverterSearchQuery} onChange={(e) => setInverterSearchQuery(e.currentTarget.value)} />
+                  </div>
+                </div>
+              </div>
+
+              <table className="filter-table form-inline">
+                <thead>
+                  <tr>
+                    <th>Inverter SN</th>
+                    <th>Station Code</th>
+                    <th>Plant Name</th>
+                    <th>Brand</th>
+                    <th>DC Capacity (kWp)</th>
+                    <th>Associated Strings</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredInverters.length === 0 && !fetchError && (
+                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>No inverters found matching your criteria.</td></tr>
+                  )}
+                  {filteredInverters.map((inv, i) => (
+                    <tr key={i}>
+                      <td style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{inv.sn}</td>
+                      <td style={{ color: theme.colors.primary.text }}>{inv.site}</td>
+                      <td>{inv.plant_name}</td>
+                      <td>{inv.brand}</td>
+                      <td>{inv.capacity}</td>
+                      <td>{inv.strings}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
 
           {/* ================= EXCLUSIONS TAB ================= */}
           {activeTab === 'exclusions' && (
-            <div style={{ maxWidth: '800px' }}>
+            <div style={{ maxWidth: '800px', background: 'transparent' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px' }}>
                 <Field label="1. Select Site">
                   <Select 
@@ -234,15 +357,19 @@ export function App(props: AppRootProps) {
               </div>
 
               {selectedInv && (
-                <div style={{ background: '#181b1f', padding: '20px', border: '1px solid #2c3235', borderRadius: '4px' }}>
+                <div style={{ 
+                  background: 'transparent', 
+                  padding: '20px', 
+                  border: `1px solid ${theme.colors.border.weak}`, 
+                  borderRadius: theme.shape.radius.default 
+                }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
                     <h4 style={{ margin: 0 }}>Configure Excluded Strings</h4>
-                    <span style={{ color: '#e8823a', fontFamily: 'monospace' }}>
+                    <span style={{ color: theme.colors.warning.text, fontFamily: 'monospace', fontWeight: 'bold' }}>
                       Excluded: {currentExclusions.length > 0 ? currentExclusions.join(', ') : 'None'}
                     </span>
                   </div>
 
-                  {/* 40 STRING GRID */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: '8px', marginBottom: '20px' }}>
                     {Array.from({ length: 40 }, (_, i) => i + 1).map(num => {
                       const isEx = currentExclusions.includes(num);
@@ -251,13 +378,11 @@ export function App(props: AppRootProps) {
                           key={num}
                           onClick={() => toggleString(num)}
                           style={{
-                            height: '40px',
-                            background: isEx ? '#5e1f26' : '#22252b',
-                            border: `1px solid ${isEx ? '#e02f44' : '#2c3235'}`,
-                            color: isEx ? '#ffccd2' : '#8e98a5',
-                            borderRadius: '3px',
-                            fontWeight: 'bold',
-                            cursor: 'pointer'
+                            height: '40px', 
+                            background: isEx ? theme.colors.error.transparent : theme.colors.background.secondary,
+                            border: `1px solid ${isEx ? theme.colors.error.border : theme.colors.border.weak}`,
+                            color: isEx ? theme.colors.error.text : theme.colors.text.secondary,
+                            borderRadius: '3px', fontWeight: 'bold', cursor: 'pointer'
                           }}
                         >
                           {num}
@@ -272,7 +397,7 @@ export function App(props: AppRootProps) {
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                     <Button variant="primary" icon="save" onClick={handleSaveExclusions}>Save Exclusions</Button>
-                    {saveStatus && <span style={{ color: saveStatus.includes('Success') ? '#73bf69' : '#e02f44' }}>{saveStatus}</span>}
+                    {saveStatus && <span style={{ color: saveStatus.includes('Success') ? theme.colors.success.text : theme.colors.error.text, fontWeight: 'bold' }}>{saveStatus}</span>}
                   </div>
                 </div>
               )}
