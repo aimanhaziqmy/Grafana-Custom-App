@@ -2,7 +2,10 @@ module github.com/ers/onm-site-management
 
 go 1.25.7
 
-require github.com/grafana/grafana-plugin-sdk-go v0.292.0
+require (
+	github.com/grafana/grafana-plugin-sdk-go v0.292.0
+	github.com/lib/pq v1.12.3
+)
 
 require (
 	github.com/BurntSushi/toml v1.5.0 // indirect
@@ -36,7 +39,6 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
-	github.com/lib/pq v1.12.3 // indirect
 	github.com/magefile/mage v1.17.1 // indirect
 	github.com/mattetti/filebuffer v1.0.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect

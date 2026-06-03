@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button, Select, Input, useTheme2 } from '@grafana/ui';
+import { Button, Select, Input, useTheme2, Switch } from '@grafana/ui';
 import { getBackendSrv } from '@grafana/runtime';
 
 interface Props {
@@ -30,6 +30,7 @@ export function SitesTab({ pluginId, sites, onRefresh, onAddSite, fetchError }: 
     const isActivating = currentStatus !== 'Active';
     const actionWord = isActivating ? 'ACTIVATE' : 'DEACTIVATE';
     
+    // The safety prompt remains
     if (window.confirm(`Are you sure you want to ${actionWord} the site: ${siteCode}?`)) {
       try {
         await getBackendSrv().post(`/api/plugins/${pluginId}/resources/sites/status`, {
@@ -73,12 +74,11 @@ export function SitesTab({ pluginId, sites, onRefresh, onAddSite, fetchError }: 
             <th>Brand</th>
             <th>Capacity</th>
             <th>Is Monitored</th>
-            <th style={{ textAlign: 'right' }}>Actions</th>
           </tr>
         </thead>
         <tbody>
           {filteredSites.length === 0 && !fetchError && (
-            <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>No sites found matching your criteria.</td></tr>
+            <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>No sites found matching your criteria.</td></tr>
           )}
           {filteredSites.map((s, i) => (
             <tr key={i}>
@@ -87,18 +87,23 @@ export function SitesTab({ pluginId, sites, onRefresh, onAddSite, fetchError }: 
               <td>{s.brand}</td>
               <td>{s.capacity}</td>
               <td>
-                <span style={{ 
-                  padding: '2px 8px', borderRadius: '3px', fontSize: '12px', fontWeight: 'bold',
-                  background: s.status === 'Active' ? theme.colors.success.transparent : theme.colors.error.transparent,
-                  color: s.status === 'Active' ? theme.colors.success.text : theme.colors.error.text
-                }}>
-                  {s.status}
-                </span>
-              </td>
-              <td style={{ textAlign: 'right' }}>
-                <Button variant={s.status === 'Active' ? 'destructive' : 'success'} size="sm" onClick={() => handleToggleMonitor(s.code, s.status)}>
-                  {s.status === 'Active' ? 'Deactivate' : 'Activate'}
-                </Button>
+                {/* NATIVE GRAFANA SWITCH
+                  - Blends perfectly into the background
+                  - Text dynamically changes color based on active state
+                */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Switch 
+                    value={s.status === 'Active'} 
+                    onChange={() => handleToggleMonitor(s.code, s.status)} 
+                  />
+                  <span style={{ 
+                    fontSize: '13px', 
+                    fontWeight: 600,
+                    color: s.status === 'Active' ? theme.colors.success.text : theme.colors.text.secondary 
+                  }}>
+                    {s.status === 'Active' ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
               </td>
             </tr>
           ))}
@@ -107,3 +112,4 @@ export function SitesTab({ pluginId, sites, onRefresh, onAddSite, fetchError }: 
     </div>
   );
 }
+

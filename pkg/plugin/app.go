@@ -85,6 +85,7 @@ func (a *App) CallResource(ctx context.Context, req *backend.CallResourceRequest
 				d.dc_capacity_kwp 
 			FROM device_list d
 			LEFT JOIN station_dim s ON d.station_code = s.station_code
+			WHERE d.device_type = '1'
 		`
 		rows, err := a.db.Query(query)
 		if err != nil { return sendError(sender, err) }

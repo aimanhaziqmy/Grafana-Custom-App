@@ -3,23 +3,19 @@ import { AppRootProps } from '@grafana/data';
 import { getBackendSrv } from '@grafana/runtime';
 import { TabsBar, Tab, TabContent, Alert } from '@grafana/ui';
 
-// Import our refactored components
 import { SitesTab } from './SitesTab';
 import { InvertersTab } from './InvertersTab';
-import { ExclusionsTab } from './ExclusionsTab';
 import { AddSiteModal } from './AddSiteModal';
 
 export function App(props: AppRootProps) {
   const pluginId = props.meta.id;
   const [activeTab, setActiveTab] = useState('sites');
   
-  // Global Data State
   const [sites, setSites] = useState<any[]>([]);
   const [inverters, setInverters] = useState<any[]>([]);
   const [exclusionsData, setExclusionsData] = useState<any>({});
   const [fetchError, setFetchError] = useState<string | null>(null);
   
-  // Modal State
   const [isAddSiteOpen, setIsAddSiteOpen] = useState(false);
 
   const fetchData = async () => {
@@ -39,7 +35,6 @@ export function App(props: AppRootProps) {
     }
   };
 
-  // Fetch data on load
   useEffect(() => { fetchData(); }, []);
 
   return (
@@ -49,7 +44,6 @@ export function App(props: AppRootProps) {
       <TabsBar>
         <Tab label="Sites & Stations" active={activeTab === 'sites'} onChangeTab={() => setActiveTab('sites')} />
         <Tab label="Inverter Management" active={activeTab === 'inverters'} onChangeTab={() => setActiveTab('inverters')} />
-        <Tab label="String Exclusions" active={activeTab === 'exclusions'} onChangeTab={() => setActiveTab('exclusions')} />
       </TabsBar>
 
       <TabContent>
@@ -73,20 +67,11 @@ export function App(props: AppRootProps) {
 
           {activeTab === 'inverters' && (
             <InvertersTab 
+              pluginId={pluginId}
               inverters={inverters} 
               sites={sites} 
               exclusionsData={exclusionsData} 
               fetchError={fetchError} 
-              onRefresh={fetchData} 
-            />
-          )}
-
-          {activeTab === 'exclusions' && (
-            <ExclusionsTab 
-              pluginId={pluginId} 
-              sites={sites} 
-              inverters={inverters} 
-              exclusionsData={exclusionsData} 
               onRefresh={fetchData} 
             />
           )}

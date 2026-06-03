@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Button, Select, Input, useTheme2 } from '@grafana/ui';
+import { EditExclusionsModal } from './EditExclusionsModal';
 
 interface Props {
+  pluginId: string; // We now need pluginId to pass to the modal
   inverters: any[];
   sites: any[];
   exclusionsData: any;
@@ -9,11 +11,14 @@ interface Props {
   fetchError: string | null;
 }
 
-export function InvertersTab({ inverters, sites, exclusionsData, onRefresh, fetchError }: Props) {
+export function InvertersTab({ pluginId, inverters, sites, exclusionsData, onRefresh, fetchError }: Props) {
   const theme = useTheme2();
   const [inverterSearchQuery, setInverterSearchQuery] = useState('');
   const [inverterFilterSite, setInverterFilterSite] = useState('ALL');
   const [inverterFilterConfigured, setInverterFilterConfigured] = useState('ALL');
+  
+  // State for controlling the Edit Modal
+  const [editingInv, setEditingInv] = useState<any | null>(null);
 
   const filteredInverters = inverters.filter(inv => {
     const matchesSearch = !inverterSearchQuery || (inv.sn?.toLowerCase() || '').includes(inverterSearchQuery.toLowerCase());
@@ -38,7 +43,6 @@ export function InvertersTab({ inverters, sites, exclusionsData, onRefresh, fetc
           <Button variant="secondary" icon="sync" onClick={onRefresh}>Refresh Dashboard</Button>
         </div>
 
-        {/* ---> REARRANGED: Search -> Site -> Rule <--- */}
         <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-end' }}>
           <div style={{ width: '250px' }}>
             <div style={labelStyle}>Search Inverters</div>
@@ -79,11 +83,12 @@ export function InvertersTab({ inverters, sites, exclusionsData, onRefresh, fetc
             <th>DC Capacity (kWp)</th>
             <th>Active Strings</th>
             <th>Exclusion Rules</th>
+            <th style={{ textAlign: 'right' }}>Actions</th>
           </tr>
         </thead>
         <tbody>
           {filteredInverters.length === 0 && !fetchError && (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>No inverters found matching your criteria.</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '20px' }}>No inverters found matching your criteria.</td></tr>
           )}
           {filteredInverters.map((inv, i) => {
             const excludedArray = exclusionsData[inv.sn] || [];
@@ -107,11 +112,26 @@ export function InvertersTab({ inverters, sites, exclusionsData, onRefresh, fetc
                     {isConfigured ? 'Configured' : 'Not Configured'}
                   </span>
                 </td>
+                <td style={{ textAlign: 'right' }}>
+                  <Button variant="secondary" size="sm" onClick={() => setEditingInv(inv)}>
+                    Edit
+                  </Button>
+                </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
+      {/* Render the Edit Modal safely */}
+      <EditExclusionsModal 
+        isOpen={!!editingInv}
+        onClose={() => setEditingInv(null)}
+        onSuccess={onRefresh}
+        pluginId={pluginId}
+        inverter={editingInv}
+        initialExclusions={editingInv ? (exclusionsData[editingInv.sn] || []) : []}
+      />
     </div>
   );
 }
